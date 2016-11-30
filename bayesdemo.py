@@ -16,14 +16,15 @@ def gaussian_process_demo(n=2,m=1000,fits=10):
     return()
 
 
-def demo_bayes_linear(n=2,m=1000,fits=10,alpha=2,beta=25):
+def demo_bayes_linear(n=2,m=1000,fits=10,alpha=2,beta=25,xtrain=None):
     """
     Linear demo of gaussian process... shown in PRML pg. 155
     """
     a0=-0.3
     a1=0.5
     #sample from function
-    xtrain=np.random.uniform(-1,1,n)
+    if xtrain==None:
+        xtrain=np.random.uniform(-1,1,n)
     ytrain=a0+a1*xtrain
 
     #make design matrix
@@ -58,10 +59,12 @@ def demo_bayes_linear(n=2,m=1000,fits=10,alpha=2,beta=25):
 
     fig2=plot_demo(prior,posterior)
 
-    return(fig,fig2)
+    alpha,beta=evidence_func(PHImat,mn,ytrain,PHImat.transpose(),alpha,beta)
+    print(np.mean(posterior,axis=0))
+    return(xtrain,alpha,beta,fig,fig2)
 
 
-def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,plothist=False,xtrain=None):
+def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,plothist=False,demo="sin",xtrain=None):
     """
     This uses a gaussian basis function at fixed locations...
         i.e. 9 gaussian basis functions at equal intervals in the dataset
@@ -77,15 +80,31 @@ def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,
             --the changes are minor, but note while alpha is a matrix, beta is still a singular value
 
     """
-    #sample from function
-    if xtrain==None:
-        xtrain=np.random.uniform(-1,1,n)
+    if demo=="marathon_demo":
+        import pods
+        data=pods.datasets.olympic_marathon_men()
+        y=data["Y"].reshape(-1,) #size n
+        if xtrain==None:
+            xtrain=data["X"].reshape(-1,)#size n
 
-    ytrain=np.sin(2*np.pi*xtrain)
+        ytrain=y-y.mean()
+        #makeup test set
+        xtest=np.linspace(xtrain.min(),xtrain.max(),100) #size n*
+        xtest.resize((100,1))
+    else:
+        #sample from function
+        if xtrain==None:
+            xtrain=np.random.uniform(-1,1,n)
+        xtest=np.arange(-1,1,0.05)
+        ytrain=np.sin(2*np.pi*xtrain)
 
     #use a non-linear basis function
     #in this case RBF=phi(x)=exp((x-mu_j)^2/(2s^2))
-    basis_location=np.linspace(-1,1,Nbasis) #only use if want fixed location
+    if Nbasis == None:
+        basis_location=xtrain
+    else:
+        basis_location=np.linspace(-1,1,Nbasis) #only use if want fixed location
+
     def setRBF(xtrain,s=0.45):
         def RBF_(x):
             dmat=np.zeros((x.shape[0],np.max(xtrain.shape[0])))
@@ -121,7 +140,6 @@ def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,
 
         #posterior for the weights, i.e. sample all the weights.
         posterior=np.random.multivariate_normal(mn,np.linalg.inv(Sninv),m)
-        test=np.arange(-1,1,0.05)
 
         alpha,beta=evidence_func(PHImat,mn,ytrain,RBF_(xtrain).transpose(),alpha,beta)
         #print("Evidence function suggests set alpha= %.2f" % np.real(alpha))
@@ -129,6 +147,7 @@ def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,
         ax1n.scatter(iter+1,alpha)
         ax2n.scatter(iter+1,beta)
         iter=iter+1
+
     #build testmat, i.e. solving for the testmatrix--> this is transforming all the inputs to gaussian
     #space and multiplying by the weights found in the previous step
     #the meaning of the weights are unclear in this context as they are weights of transformed data
@@ -136,13 +155,16 @@ def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,
     ax2n.set_ylabel("Beta vs iter")
     fign.show()
 
-    testmat=RBF_(test).transpose()
+    testmat=RBF_(xtest).transpose()
     ytest1=np.dot(posterior[np.random.randint(0,posterior.shape[0],fits),:],testmat)
 
     #build most likely function, i.e. expected value for the weights
     yall=np.dot(posterior,testmat)
     ymean=np.mean(yall,axis=0)
 
+    #if demo=="marathon_demo":
+    #    ymean=ymean+y.mean()
+    #    ytest1=ytest1+y.mean()
     #print(wmean)
     #print(testmat.shape())
     #ymean=np.dot(wmean,testmat)
@@ -151,18 +173,28 @@ def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,
     fig=plt.figure()
     ax=fig.add_subplot(121)
     for y in ytest1:
-        ax.plot(test,y)
+        ax.plot(xtest,y)
 
-    ax.set_ylim([-3,3])
-    ax.set_xlim([-1,1])
+    if demo=="sin":
+        ax.set_ylim([-3,3])
+        ax.set_xlim([-1,1])
+    elif demo=="marathon_demo":
+        ax.set_xlim([xtrain.min(),xtrain.max()])
+        ax.set_ylim([ytrain.min()-1,ytrain.max()+1])
     ax.scatter(xtrain,ytrain)
 
     ax=fig.add_subplot(122)
-    ax.plot(test,ymean,"b")
-    ax.set_ylim([-3,3])
-    ax.set_xlim([-1,1])
+    ax.plot(xtest,ymean,"b")
+    if demo=="sin":
+        ax.set_ylim([-3,3])
+        ax.set_xlim([-1,1])
+    elif demo=="marathon_demo":
+        ax.set_xlim([xtrain.min(),xtrain.max()])
+        ax.set_ylim([ytrain.min()-1,ytrain.max()+1])
     tmp=np.arange(-1,1,0.01)
-    ax.plot(tmp,np.sin(2*np.pi*tmp),"r--")
+    if demo=="sin":
+        ax.plot(tmp,np.sin(2*np.pi*tmp),"r--")
+
     ax.scatter(xtrain,ytrain)
 
     fig.show()
@@ -178,10 +210,12 @@ def gaussian_basis(s=0.15,n=15,m=1000,fits=20,alpha=2,beta=7,itermax=5,Nbasis=9,
     return(xtrain,alpha,beta)
 
 
+
 def evidence_func(PHImat,mn,ytrain,xtrain_,alpha,beta):
     """
     Maximizing parameters based on training data only
     """
+
     X=beta*np.dot(PHImat.transpose(),PHImat)
     w,v=np.linalg.eig(X)
     lam=np.diag(w)
